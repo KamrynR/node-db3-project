@@ -1,117 +1,105 @@
-const express = require('express');
+const express = require('express')
+const db = require('../../data/db-config')
+const schemeModel = require('./scheme-model')
 
-const Schemes = require('./scheme-model.js');
+const router = express.Router()
 
-const router = express.Router();
+router.get('/', async (req, res, next) => {
+  try {
+    res.status(200).json(await db('schemes'))
+  } catch(err) {
+    next(err)
+  }
+})
 
-router.get('/', (req, res) => {
-  Schemes.find()
-    .then(schemes => {
-      res.json(schemes);
-    })
-    .catch(err => {
-      res.status(500).json({ message: 'Failed to get schemes' });
-    });
-});
+router.get('/:id', validateSchemeId(), async (req, res, next) => {
+  try {
+    res.status(200).json(req.scheme)
+  } catch(err) {
+    next(err)
+  }
+})
 
-router.get('/:id', (req, res) => {
-  const { id } = req.params;
+router.get('/:id/steps', validateSchemeId(), async (req, res, next) => {
+  try {
+    const steps = await schemeModel.findStepsForScheme(req.params.id)
+    
+    res.status(200).json(steps)
+  } catch(err) {
+    next(err)
+  }
+})
 
-  Schemes.findById(id)
-    .then(scheme => {
-      if (scheme) {
-        res.json(scheme);
-      } else {
-        res.status(404).json({ message: 'Could not find scheme with given id.' })
-      }
-    })
-    .catch(err => {
-      res.status(500).json({ message: 'Failed to get schemes' });
-    });
-});
+router.post('/', async (req, res, next) => {
+  try {
+    const [id] = await db("schemes").insert(req.body)
+		const scheme = await db("schemes").where({ id }).first()
 
-router.get('/:id/steps', (req, res) => {
-  const { id } = req.params;
+		res.status(201).json(scheme)
+  } catch(err) {
+    next(err)
+  }
+})
 
-  Schemes.findSteps(id)
-    .then(steps => {
-      if (steps.length) {
-        res.json(steps);
-      } else {
-        res.status(404).json({ message: 'Could not find steps for given scheme' })
-      }
-    })
-    .catch(err => {
-      res.status(500).json({ message: 'Failed to get steps' });
-    });
-});
+router.post('/:id/steps', validateSchemeId(), async (req, res, next) => {
+  try {
+    const schemeId = req.params.id
+    const stepData = req.body
+    stepData.scheme_id = schemeId
+    await db('steps').insert(stepData)
 
-router.post('/', (req, res) => {
-  const schemeData = req.body;
+    const [step] = await db('steps')
+      .select('id', 'step_number', 'instructions', 'scheme_id')
+      .orderBy('id', 'desc')
+      .limit('1')
 
-  Schemes.add(schemeData)
-    .then(scheme => {
-      res.status(201).json(scheme);
-    })
-    .catch(err => {
-      res.status(500).json({ message: 'Failed to create new scheme' });
-    });
-});
+    res.status(201).json(step)
+  } catch(err) {
+    next(err)
+  }
+})
 
-router.post('/:id/steps', (req, res) => {
-  const stepData = req.body;
-  const { id } = req.params;
+router.put('/:id', validateSchemeId(), async (req, res, next) => {
+  try {
+    const { id } = req.params
+    await db("schemes").where({ id }).update(req.body)
+    const scheme = await db("schemes").where({ id }).first()
 
-  Schemes.findById(id)
-    .then(scheme => {
-      if (scheme) {
-        return Schemes.addStep(stepData, id);
-      } else {
-        res.status(404).json({ message: 'Could not find scheme with given id.' })
-      }
-    })
-    .then(step => {
-      res.status(201).json(step);
-    })
-    .catch(err => {
-      res.status(500).json({ message: 'Failed to create new step' });
-    });
-});
+		res.status(200).json(scheme)
+  } catch(err) {
+    next(err)
+  }
+})
 
-router.put('/:id', (req, res) => {
-  const { id } = req.params;
-  const changes = req.body;
+router.delete('/:id', validateSchemeId(), async (req, res, next) => {
+  try {
+    const { id } = req.params
+    await db('schemes').where({ id }).del()
 
-  Schemes.findById(id)
-    .then(scheme => {
-      if (scheme) {
-        return Schemes.update(changes, id);
-      } else {
-        res.status(404).json({ message: 'Could not find scheme with given id' });
-      }
-    })
-    .then(updatedScheme => {
-      res.json(updatedScheme);
-    })
-    .catch(err => {
-      res.status(500).json({ message: 'Failed to update scheme' });
-    });
-});
+    res.status(204).end()
+  } catch(err) {
+    next(err)
+  }
+})
 
-router.delete('/:id', (req, res) => {
-  const { id } = req.params;
+function validateSchemeId() {
+	return async (req, res, next) => {
+		try {
+			const { id } = req.params
+			const scheme = await db("schemes").where({ id }).first()
 
-  Schemes.remove(id)
-    .then(deleted => {
-      if (deleted) {
-        res.json({ removed: deleted });
-      } else {
-        res.status(404).json({ message: 'Could not find scheme with given id' });
-      }
-    })
-    .catch(err => {
-      res.status(500).json({ message: 'Failed to delete scheme' });
-    });
-});
+			if (!scheme) {
+				return res.status(404).json({
+					message: "Scheme not found",
+				})
+			}
 
-module.exports = router;
+			req.scheme = scheme
+			next()
+		} catch(err) {
+			next(err)
+		}
+	}
+}
+
+module.exports = router
